@@ -25,6 +25,7 @@
         "workLabel": "📕 作品：",
         "confirmBtn": "确定",
         "newItem": "新条目",
+        "newFolder": "新分类",
         "workNamePlaceholder": "作品名称…",
         "deleteWorkPrompt": "确定删除作品「{name}」及其所有设定？此操作不可撤销。",
         "deleteWorkAlert": "至少需要保留一个作品",

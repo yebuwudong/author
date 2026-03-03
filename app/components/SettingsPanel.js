@@ -484,14 +484,13 @@ export default function SettingsPanel() {
 
     // 节点操作
     const handleAddNode = async (parentId, category) => {
-        let cat = category || 'custom';
-        if (parentId && !category) {
-            const parent = nodes.find(n => n.id === parentId);
-            if (parent) cat = parent.category;
-        }
+        const parent = parentId ? nodes.find(n => n.id === parentId) : null;
+        let cat = category || (parent ? parent.category : 'custom');
+        // 如果父节点是作品节点，创建文件夹（大分类）；否则创建条目
+        const isParentWork = parent && parent.type === 'work';
         const newNode = await addSettingsNode({
-            name: t('settings.newItem'),
-            type: 'item',
+            name: isParentWork ? t('settings.newFolder') : t('settings.newItem'),
+            type: isParentWork ? 'folder' : 'item',
             category: cat,
             parentId,
             enabled: true,

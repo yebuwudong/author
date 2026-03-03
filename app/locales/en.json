@@ -25,6 +25,7 @@
     "workLabel": "📕 Project:",
     "confirmBtn": "Confirm",
     "newItem": "New Item",
+    "newFolder": "New Category",
     "workNamePlaceholder": "Project Name...",
     "deleteWorkPrompt": "Are you sure you want to delete the project '{name}' and all its settings? This cannot be undone.",
     "deleteWorkAlert": "At least one project must remain.",

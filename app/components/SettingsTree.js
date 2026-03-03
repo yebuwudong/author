@@ -30,6 +30,11 @@ function TreeNode({ node, nodes, selectedId, onSelect, onAdd, onDelete, onRename
     const isFolder = node.type === 'folder' || node.type === 'special' || node.type === 'work';
     const isWork = node.type === 'work';
     const isRoot = node.parentId === null;
+    // 内置子分类（作品下的固定分类，如人物设定、空间/地点等）不可删除
+    const builtinSuffixes = ['bookinfo', 'characters', 'locations', 'world', 'objects', 'plot', 'rules'];
+    const parentNode = node.parentId ? nodes.find(n => n.id === node.parentId) : null;
+    const isBuiltinCategory = parentNode && parentNode.type === 'work' && builtinSuffixes.some(s => node.id.endsWith('-' + s));
+    const canDelete = !isRoot && !isBuiltinCategory;
     const isCollapsed = collapsedIds.has(node.id);
     const isSelected = selectedId === node.id;
     const isDisabled = node.enabled === false;
@@ -138,7 +143,7 @@ function TreeNode({ node, nodes, selectedId, onSelect, onAdd, onDelete, onRename
                         <button className="tree-action-btn" onClick={e => { e.stopPropagation(); setRenameValue(node.name); setIsRenaming(true); }} title={t('common.rename')}>✏</button>
                     )}
                     {/* 删除 */}
-                    {!isRoot && (
+                    {canDelete && (
                         <button className="tree-action-btn danger" onClick={e => { e.stopPropagation(); onDelete(node.id); }} title={t('common.delete')}>✕</button>
                     )}
                 </span>
