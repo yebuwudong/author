@@ -96,7 +96,7 @@ export async function POST(request) {
             if (!round1Res.ok) {
                 const errorText = await round1Res.text();
                 console.error('Claude Function Calling 第1轮错误:', round1Res.status, errorText);
-                return errorResponse(round1Res.status);
+                return errorResponse(round1Res.status, errorText);
             }
 
             const round1Data = await round1Res.json();
@@ -160,7 +160,7 @@ export async function POST(request) {
                 if (!round2Res.ok) {
                     const errorText = await round2Res.text();
                     console.error('Claude Function Calling 第2轮错误:', round2Res.status, errorText);
-                    return errorResponse(round2Res.status);
+                    return errorResponse(round2Res.status, errorText);
                 }
 
                 // 流式转发 + 前置发送搜索来源
@@ -213,7 +213,7 @@ export async function POST(request) {
         if (!response.ok) {
             const errorText = await response.text();
             console.error('Claude API 错误:', response.status, errorText);
-            return errorResponse(response.status);
+            return errorResponse(response.status, errorText);
         }
 
         return streamClaudeResponse(response);
@@ -228,15 +228,36 @@ export async function POST(request) {
 }
 
 // ===== 错误响应 =====
-function errorResponse(status) {
+function errorResponse(status, errorText = '') {
     const errorMessages = {
         401: 'API Key 无效或已过期，请检查后重新填写',
         403: 'API Key 无权限或已被禁用',
         429: '请求频率过高或额度不足，请稍后再试',
         529: 'Anthropic API 过载，请稍后再试',
     };
+
+    let errMsg = errorMessages[status];
+
+    if (!errMsg && errorText) {
+        try {
+            const errObj = JSON.parse(errorText);
+            const msg = errObj?.error?.message || '';
+            const code = errObj?.error?.code || '';
+            if (code === 'insufficient_user_quota' || msg.includes('额度') || msg.includes('quota')) {
+                errMsg = 'API 账户余额不足，请充值后重试';
+            } else if (msg.includes('Context window is full') || msg.includes('context_length') || msg.includes('too many tokens')) {
+                errMsg = '上下文过长：设定集 + 前文 + 对话内容超出模型上下文窗口，请减少勾选的参考内容或清空对话历史';
+            } else if (msg.includes('too long') || msg.includes('maximum context length')) {
+                errMsg = '输入内容过长，请减少勾选的参考内容或缩短对话历史';
+            } else if (msg) {
+                errMsg = `Claude 服务错误：${msg}`;
+            }
+        } catch { /* ignore */ }
+    }
+    if (!errMsg) errMsg = `Claude 服务返回错误(${status})，请检查 API 配置`;
+
     return new Response(
-        JSON.stringify({ error: errorMessages[status] || `Claude 服务返回错误(${status})，请检查 API 配置` }),
+        JSON.stringify({ error: errMsg }),
         { status, headers: { 'Content-Type': 'application/json' } }
     );
 }
