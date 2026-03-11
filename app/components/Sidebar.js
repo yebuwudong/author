@@ -3,7 +3,7 @@
 import { useState, useCallback, useEffect, useRef } from 'react';
 import { useAppStore } from '../store/useAppStore';
 import { useI18n } from '../lib/useI18n';
-import { createChapter, deleteChapter, updateChapter, saveChapters, getChapters } from '../lib/storage';
+import { createChapter, deleteChapter, updateChapter, saveChapters, getChapters, createVolume, insertChapterInVolume, reorderItems } from '../lib/storage';
 import { exportProject, importProject, importWork, exportWorkAsTxt, exportWorkAsMarkdown, exportWorkAsDocx, exportWorkAsEpub, exportWorkAsPdf } from '../lib/project-io';
 import { WRITING_MODES, getAllWorks, getSettingsNodes, createWorkNode, saveSettingsNodes, setActiveWorkId as setActiveWorkIdSetting } from '../lib/settings';
 import { detectConflicts, mergeChapters } from '../lib/chapter-number';
@@ -12,6 +12,7 @@ import { estimateTokens } from '../lib/context-engine';
 export default function Sidebar({ onOpenHelp, onToggle, editorRef, pushMode }) {
     const {
         chapters, addChapter, setChapters, updateChapter: updateChapterStore,
+        addVolume, toggleVolumeCollapsed, reorderChapters,
         activeChapterId, setActiveChapterId,
         activeWorkId, setActiveWorkId: setActiveWorkIdStore,
         sidebarOpen, setSidebarOpen,
@@ -32,8 +33,13 @@ export default function Sidebar({ onOpenHelp, onToggle, editorRef, pushMode }) {
     const [showGitPopup, setShowGitPopup] = useState(false);
     const [outlineCollapsed, setOutlineCollapsed] = useState(false); // 手动折叠大纲
     const [headings, setHeadings] = useState([]); // 文档大纲标题列表
+    const [headingStats, setHeadingStats] = useState([]); // 每个标题下的字数+token
     const [activeHeadingIndex, setActiveHeadingIndex] = useState(-1); // 当前高亮的大纲项
     const isClickScrollingRef = useRef(false); // 防 scrollspy 死循环互斥锁
+    const [dragId, setDragId] = useState(null); // 拖拽中的 item id
+    const [dragOverId, setDragOverId] = useState(null); // 拖拽悬停目标 id
+    const [dragOverPos, setDragOverPos] = useState(null); // 'top' | 'bottom'
+    const [activeVolumeId, setActiveVolumeId] = useState(null); // 当前选中的分卷
     const { t } = useI18n();
 
     // 切换主题
@@ -112,35 +118,55 @@ export default function Sidebar({ onOpenHelp, onToggle, editorRef, pushMode }) {
         return t('sidebar.defaultChapterTitle').replace('{num}', chapters.length + 1);
     }, [chapters, t]);
 
-    // 创建新章节 — 一键创建并进入重命名模式
-    const handleCreateChapter = useCallback(async () => {
+    // 创建新章节 — 支持分卷内创建
+    const handleCreateChapter = useCallback(async (volumeId) => {
+        const targetVol = volumeId || activeVolumeId;
         const title = getNextChapterTitle();
-        const ch = await createChapter(title, activeWorkId);
-        addChapter(ch);
-        setActiveChapterId(ch.id);
-        // 立即进入重命名模式，方便用户修改标题
-        setRenameId(ch.id);
-        setRenameTitle(title);
+        if (targetVol) {
+            // 在分卷内创建
+            const result = await insertChapterInVolume(title, targetVol, activeWorkId);
+            setChapters(result.chapters);
+            setActiveChapterId(result.chapter.id);
+            setRenameId(result.chapter.id);
+            setRenameTitle(title);
+        } else {
+            const ch = await createChapter(title, activeWorkId);
+            addChapter(ch);
+            setActiveChapterId(ch.id);
+            setRenameId(ch.id);
+            setRenameTitle(title);
+        }
         showToast(t('sidebar.chapterCreated').replace('{title}', title), 'success');
-    }, [getNextChapterTitle, showToast, addChapter, setActiveChapterId, t, activeWorkId]);
+    }, [getNextChapterTitle, showToast, addChapter, setChapters, setActiveChapterId, t, activeWorkId, activeVolumeId]);
 
-    // 删除章节
+    // 删除章节/分卷
     const handleDeleteChapter = useCallback(async (id) => {
-        if (!Array.isArray(chapters) || chapters.length <= 1) {
-            showToast(t('sidebar.alertRetainOne'), 'error');
-            return;
+        const item = chapters.find(c => c.id === id);
+        if (!item) return;
+        if (item.type === 'volume') {
+            // 删除分卷，章节保留（移除 volume 标记）
+            const remaining = await deleteChapter(id, activeWorkId);
+            setChapters(remaining);
+            if (activeVolumeId === id) setActiveVolumeId(null);
+            showToast((t('sidebar.volumeDeleted') || '已删除分卷「{title}」').replace('{title}', item.title), 'info');
+        } else {
+            const realChapters = chapters.filter(c => (c.type || 'chapter') !== 'volume');
+            if (realChapters.length <= 1) {
+                showToast(t('sidebar.alertRetainOne'), 'error');
+                return;
+            }
+            const remaining = await deleteChapter(id, activeWorkId);
+            setChapters(remaining);
+            if (activeChapterId === id) {
+                const nextCh = remaining.find(c => (c.type || 'chapter') !== 'volume');
+                setActiveChapterId(nextCh?.id || null);
+            }
+            showToast(t('sidebar.chapterDeleted').replace('{title}', item.title), 'info');
         }
-        const ch = chapters.find(c => c.id === id);
-        const remaining = await deleteChapter(id, activeWorkId);
-        setChapters(remaining);
-        if (activeChapterId === id) {
-            setActiveChapterId(remaining[0]?.id || null);
-        }
-        showToast(t('sidebar.chapterDeleted').replace('{title}', ch?.title), 'info');
         setContextMenu(null);
-    }, [chapters, activeChapterId, showToast, setChapters, setActiveChapterId, t, activeWorkId]);
+    }, [chapters, activeChapterId, activeVolumeId, showToast, setChapters, setActiveChapterId, t, activeWorkId]);
 
-    // 重命名章节
+    // 重命名章节/分卷
     const handleRename = useCallback((id) => {
         const title = renameTitle.trim();
         if (!title) return;
@@ -150,6 +176,131 @@ export default function Sidebar({ onOpenHelp, onToggle, editorRef, pushMode }) {
         setRenameTitle('');
     }, [renameTitle, updateChapterStore, activeWorkId]);
 
+    // ===== 分卷管理 =====
+    const getNextVolumeTitle = useCallback(() => {
+        const volumes = chapters.filter(c => c.type === 'volume');
+        if (volumes.length === 0) return (t('sidebar.defaultVolumeTitle') || '第{num}卷').replace('{num}', 1);
+        for (let i = volumes.length - 1; i >= 0; i--) {
+            const next = tryNextTitle(volumes[i].title);
+            if (next) return next;
+        }
+        return (t('sidebar.defaultVolumeTitle') || '第{num}卷').replace('{num}', volumes.length + 1);
+    }, [chapters, t]);
+
+    const handleCreateVolume = useCallback(async () => {
+        const title = getNextVolumeTitle();
+        // 确定插入位置：优先当前选中的分卷之后，其次当前章节之后，否则为 null
+        const afterId = activeVolumeId || activeChapterId || null;
+        const result = await createVolume(title, activeWorkId, afterId);
+        setChapters(result.chapters);
+        setRenameId(result.vol.id);
+        setRenameTitle(title);
+        showToast((t('sidebar.volumeCreated') || '已创建「{title}」').replace('{title}', title), 'success');
+    }, [getNextVolumeTitle, showToast, setChapters, t, activeWorkId, activeChapterId, activeVolumeId]);
+
+    // ===== 一键重新编号 =====
+    const handleRenumber = useCallback(async () => {
+        const updated = [...chapters];
+        let volNum = 0; // 分卷计数器
+        let chNum = 0;  // 章节计数器
+
+        for (let i = 0; i < updated.length; i++) {
+            const item = updated[i];
+            const title = item.title || '';
+
+            if (item.type === 'volume') {
+                // 检测分卷编号模式
+                const mArabic = title.match(/^(第)(\d+)(卷.*)$/);
+                const mChinese = title.match(/^(第)([零一二三四五六七八九十百千万]+)(卷.*)$/);
+                if (mArabic) {
+                    volNum++;
+                    updated[i] = { ...item, title: `${mArabic[1]}${volNum}${mArabic[3]}` };
+                } else if (mChinese) {
+                    volNum++;
+                    updated[i] = { ...item, title: `${mChinese[1]}${toCnNum(volNum)}${mChinese[3]}` };
+                }
+                // 无编号分卷跳过
+            } else {
+                // 检测章节编号模式
+                const mArabic = title.match(/^(第)(\d+)(章.*)$/);
+                const mChinese = title.match(/^(第)([零一二三四五六七八九十百千万]+)(章.*)$/);
+                const mPureNum = /^\d+$/.test(title.trim());
+                const mTrailingNum = title.match(/^(.+?)(\d+)\s*$/);
+                if (mArabic) {
+                    chNum++;
+                    updated[i] = { ...item, title: `${mArabic[1]}${chNum}${mArabic[3]}` };
+                } else if (mChinese) {
+                    chNum++;
+                    updated[i] = { ...item, title: `${mChinese[1]}${toCnNum(chNum)}${mChinese[3]}` };
+                } else if (mPureNum) {
+                    chNum++;
+                    updated[i] = { ...item, title: String(chNum) };
+                } else if (mTrailingNum) {
+                    chNum++;
+                    updated[i] = { ...item, title: mTrailingNum[1] + chNum };
+                }
+                // 无编号章节（序章、尾声等）跳过
+            }
+        }
+
+        await saveChapters(updated, activeWorkId);
+        setChapters(updated);
+        showToast((t('sidebar.renumbered') || '已重新编号'), 'success');
+    }, [chapters, activeWorkId, setChapters, showToast, t]);
+
+    // ===== 拖拽排序 =====
+    const handleDragStart = useCallback((e, id) => {
+        setDragId(id);
+        e.dataTransfer.effectAllowed = 'move';
+        e.dataTransfer.setData('text/plain', id);
+    }, []);
+
+    const handleDragOver = useCallback((e, id) => {
+        e.preventDefault();
+        e.dataTransfer.dropEffect = 'move';
+        const rect = e.currentTarget.getBoundingClientRect();
+        const y = e.clientY - rect.top;
+        setDragOverId(id);
+        setDragOverPos(y < rect.height / 2 ? 'top' : 'bottom');
+    }, []);
+
+    const handleDrop = useCallback(async (e) => {
+        e.preventDefault();
+        if (!dragId || !dragOverId || dragId === dragOverId) {
+            setDragId(null); setDragOverId(null); setDragOverPos(null);
+            return;
+        }
+        const ids = chapters.map(c => c.id);
+        const fromIdx = ids.indexOf(dragId);
+        const toIdx = ids.indexOf(dragOverId);
+        if (fromIdx === -1 || toIdx === -1) { setDragId(null); setDragOverId(null); return; }
+
+        // 如果拖拽的是分卷，需要带上其下所有章节一起移动
+        const draggedItem = chapters[fromIdx];
+        let draggedIds = [dragId];
+        if (draggedItem.type === 'volume') {
+            let i = fromIdx + 1;
+            while (i < chapters.length && (chapters[i].type || 'chapter') !== 'volume') {
+                draggedIds.push(chapters[i].id);
+                i++;
+            }
+        }
+
+        const remaining = ids.filter(id => !draggedIds.includes(id));
+        let insertAt = remaining.indexOf(dragOverId);
+        if (insertAt === -1) insertAt = remaining.length;
+        if (dragOverPos === 'bottom') insertAt++;
+        remaining.splice(insertAt, 0, ...draggedIds);
+
+        const reordered = await reorderItems(remaining, activeWorkId);
+        reorderChapters(reordered);
+        setDragId(null); setDragOverId(null); setDragOverPos(null);
+    }, [dragId, dragOverId, dragOverPos, chapters, activeWorkId, reorderChapters]);
+
+    const handleDragEnd = useCallback(() => {
+        setDragId(null); setDragOverId(null); setDragOverPos(null);
+    }, []);
+
     // ===== 文档大纲：从编辑器提取标题 + Scrollspy =====
     useEffect(() => {
         let debounceTimer = null;
@@ -157,17 +308,38 @@ export default function Sidebar({ onOpenHelp, onToggle, editorRef, pushMode }) {
         let pollTimer = null;
         let cleanedUp = false;
 
-        // 提取标题的函数
+        // 提取标题的函数（含段落字数统计）
         const extractHeadings = (editor) => {
             const json = editor.getJSON();
             const h = [];
-            (json.content || []).forEach((node, idx) => {
+            const nodes = json.content || [];
+            // 收集标题位置
+            const headingPositions = [];
+            nodes.forEach((node, idx) => {
                 if (node.type === 'heading' && node.attrs?.level) {
                     const text = (node.content || []).map(c => c.text || '').join('');
-                    if (text.trim()) h.push({ level: node.attrs.level, text: text.trim(), index: idx });
+                    if (text.trim()) {
+                        h.push({ level: node.attrs.level, text: text.trim(), index: idx });
+                        headingPositions.push(idx);
+                    }
                 }
             });
             setHeadings(h);
+            // 计算每个标题到下一个标题之间的字数
+            const stats = h.map((heading, i) => {
+                const start = heading.index + 1;
+                const end = i < h.length - 1 ? h[i + 1].index : nodes.length;
+                let text = '';
+                for (let j = start; j < end; j++) {
+                    const n = nodes[j];
+                    if (n.content) text += n.content.map(c => c.text || '').join('');
+                }
+                const plainText = text.replace(/\s+/g, '');
+                const words = plainText.length;
+                const tokens = estimateTokens(text);
+                return { words, tokens };
+            });
+            setHeadingStats(stats);
         };
 
         // 设置 IntersectionObserver
@@ -296,22 +468,113 @@ export default function Sidebar({ onOpenHelp, onToggle, editorRef, pushMode }) {
                 {/* ===== 文档分页 ===== */}
                 <div className="gdocs-section-header">
                     <span className="gdocs-section-title">文档分页</span>
-                    <button id="tour-new-chapter" className="gdocs-section-add" onClick={handleCreateChapter} title={t('sidebar.newChapter')}>+</button>
+                    <div style={{ display: 'flex', gap: '2px' }}>
+                        <button className="gdocs-section-add" onClick={handleRenumber} title={t('sidebar.renumber') || '重新编号'}>🔢</button>
+                        <button className="gdocs-section-add" onClick={handleCreateVolume} title={t('sidebar.newVolume') || '新建分卷'}>📚</button>
+                        <button id="tour-new-chapter" className="gdocs-section-add" onClick={() => handleCreateChapter()} title={t('sidebar.newChapter')}>+</button>
+                    </div>
                 </div>
                 <div className="gdocs-tab-list">
-                    {chapters.map(ch => {
-                        const isActive = ch.id === activeChapterId;
+                    {chapters.map((ch, chIdx) => {
+                        const isVolume = ch.type === 'volume';
+                        const isActive = !isVolume && ch.id === activeChapterId;
                         const isExpanded = isActive && headings.length > 0 && !outlineCollapsed;
+                        const isDragTarget = dragOverId === ch.id;
+
+                        // 分卷折叠：检查当前章节是否隶属于一个已折叠的分卷
+                        if (!isVolume) {
+                            let belongsToCollapsed = false;
+                            for (let k = chIdx - 1; k >= 0; k--) {
+                                if (chapters[k].type === 'volume') {
+                                    if (chapters[k].collapsed) belongsToCollapsed = true;
+                                    break;
+                                }
+                            }
+                            if (belongsToCollapsed) return null;
+                        }
+
+                        // 分卷头渲染
+                        if (isVolume) {
+                            const isVolActive = activeVolumeId === ch.id;
+                            // 计算分卷下章节字数
+                            let volWords = 0;
+                            for (let k = chIdx + 1; k < chapters.length && (chapters[k].type || 'chapter') !== 'volume'; k++) {
+                                volWords += chapters[k].wordCount || 0;
+                            }
+                            return (
+                                <div key={ch.id} className="gdocs-tab-group">
+                                    <div
+                                        className={`gdocs-tab-item gdocs-volume-item ${isVolActive ? 'active' : ''}${dragId === ch.id ? ' gdocs-dragging' : ''}${isDragTarget ? ` gdocs-drag-${dragOverPos}` : ''}`}
+                                        draggable
+                                        onDragStart={(e) => handleDragStart(e, ch.id)}
+                                        onDragOver={(e) => handleDragOver(e, ch.id)}
+                                        onDrop={handleDrop}
+                                        onDragEnd={handleDragEnd}
+                                        onClick={() => {
+                                            toggleVolumeCollapsed(ch.id);
+                                            updateChapter(ch.id, { collapsed: !ch.collapsed }, activeWorkId);
+                                            setActiveVolumeId(isVolActive ? null : ch.id);
+                                        }}
+                                    >
+                                        {renameId === ch.id ? (
+                                            <input
+                                                className="modal-input"
+                                                style={{ margin: 0, padding: '4px 8px', fontSize: '13px', flex: 1, fontWeight: 600 }}
+                                                value={renameTitle || ''}
+                                                onChange={e => setRenameTitle(e.target.value)}
+                                                onBlur={() => handleRename(ch.id)}
+                                                onKeyDown={e => e.key === 'Enter' && handleRename(ch.id)}
+                                                onClick={e => e.stopPropagation()}
+                                                autoFocus
+                                            />
+                                        ) : (
+                                            <>
+                                                <span className="gdocs-tab-arrow" style={{ transform: ch.collapsed ? 'none' : 'rotate(90deg)' }}>▶</span>
+                                                <span style={{ flex: 1, minWidth: 0 }}>
+                                                    <span className="gdocs-tab-title" style={{ fontWeight: 600 }}>📖 {ch.title}</span>
+                                                    {volWords > 0 && (
+                                                        <span style={{ display: 'block', fontSize: '10px', color: 'var(--text-muted)', marginTop: '1px' }}>
+                                                            {volWords.toLocaleString()}字
+                                                        </span>
+                                                    )}
+                                                </span>
+                                                <div className="gdocs-tab-actions">
+                                                    <button className="gdocs-tab-action-btn" title={t('sidebar.newChapterInVolume') || '新建章节'} onClick={(e) => { e.stopPropagation(); handleCreateChapter(ch.id); }}>+</button>
+                                                    <button className="gdocs-tab-action-btn" title={t('sidebar.contextRename')} onClick={(e) => { e.stopPropagation(); setRenameId(ch.id); setRenameTitle(ch.title); }}>
+                                                        <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M17 3a2.83 2.83 0 1 1 4 4L7.5 20.5 2 22l1.5-5.5Z" /></svg>
+                                                    </button>
+                                                    <button className="gdocs-tab-action-btn danger" title={t('sidebar.deleteVolume') || '删除分卷'} onClick={(e) => { e.stopPropagation(); handleDeleteChapter(ch.id); }}>
+                                                        <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><polyline points="3 6 5 6 21 6" /><path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2" /></svg>
+                                                    </button>
+                                                </div>
+                                            </>
+                                        )}
+                                    </div>
+                                </div>
+                            );
+                        }
+
+                        // 章节项渲染（带拖拽）
                         return (
                             <div key={ch.id} className="gdocs-tab-group">
                                 <div
-                                    className={`gdocs-tab-item ${isActive ? 'active' : ''}`}
+                                    className={`gdocs-tab-item ${isActive ? 'active' : ''}${dragId === ch.id ? ' gdocs-dragging' : ''}${isDragTarget ? ` gdocs-drag-${dragOverPos}` : ''}`}
+                                    draggable
+                                    onDragStart={(e) => handleDragStart(e, ch.id)}
+                                    onDragOver={(e) => handleDragOver(e, ch.id)}
+                                    onDrop={handleDrop}
+                                    onDragEnd={handleDragEnd}
                                     onClick={() => {
                                         if (isActive) {
                                             setOutlineCollapsed(prev => !prev);
                                         } else {
                                             setActiveChapterId(ch.id);
                                             setOutlineCollapsed(false);
+                                            // 跟踪所属分卷
+                                            for (let k = chIdx - 1; k >= 0; k--) {
+                                                if (chapters[k].type === 'volume') { setActiveVolumeId(chapters[k].id); break; }
+                                                if (k === 0) setActiveVolumeId(null);
+                                            }
                                         }
                                     }}
                                 >
@@ -359,7 +622,7 @@ export default function Sidebar({ onOpenHelp, onToggle, editorRef, pushMode }) {
                                         </>
                                     )}
                                 </div>
-                                {/* 展开的章节大纲 */}
+                                {/* 展开的章节大纲（含字数统计） */}
                                 {isExpanded && (
                                     <div className="gdocs-outline-inline">
                                         {headings.map((h, idx) => (
@@ -370,7 +633,12 @@ export default function Sidebar({ onOpenHelp, onToggle, editorRef, pushMode }) {
                                                 onClick={() => handleOutlineClick(idx)}
                                                 title={h.text}
                                             >
-                                                {h.text}
+                                                <span style={{ flex: 1, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{h.text}</span>
+                                                {headingStats[idx] && headingStats[idx].words > 0 && (
+                                                    <span className="gdocs-outline-stats">
+                                                        {headingStats[idx].words.toLocaleString()}字 · ~{headingStats[idx].tokens.toLocaleString()}t
+                                                    </span>
+                                                )}
                                             </div>
                                         ))}
                                     </div>

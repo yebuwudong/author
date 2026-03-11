@@ -14,6 +14,11 @@ export const useAppStore = create((set, get) => ({
     updateChapter: (id, updates) => set((state) => ({
         chapters: state.chapters.map((ch) => (ch.id === id ? { ...ch, ...updates } : ch))
     })),
+    addVolume: (volume) => set((state) => ({ chapters: [volume, ...state.chapters] })),
+    toggleVolumeCollapsed: (id) => set((state) => ({
+        chapters: state.chapters.map((ch) => (ch.id === id && ch.type === 'volume' ? { ...ch, collapsed: !ch.collapsed } : ch))
+    })),
+    reorderChapters: (newChapters) => set({ chapters: newChapters }),
 
     // --- UI State ---
     sidebarOpen: true,

@@ -95,6 +95,75 @@ export async function deleteChapter(id, workId) {
     return newChapters;
 }
 
+// 创建分卷 (Async) — afterId: 插入到该 id 之后；null 且无分卷时插入顶部；null 且有分卷时追加末尾
+export async function createVolume(title = '第一卷', workId, afterId) {
+    const chapters = await getChapters(workId);
+    const vol = {
+        id: generateId(),
+        title,
+        type: 'volume',
+        collapsed: false,
+        createdAt: new Date().toISOString(),
+    };
+    const hasVolumes = chapters.some(c => c.type === 'volume');
+    if (afterId) {
+        const idx = chapters.findIndex(c => c.id === afterId);
+        // 如果 afterId 是分卷，插入到该分卷的所有子章节之后
+        let insertAt = idx + 1;
+        if (idx !== -1 && chapters[idx].type === 'volume') {
+            while (insertAt < chapters.length && (chapters[insertAt].type || 'chapter') !== 'volume') {
+                insertAt++;
+            }
+        }
+        chapters.splice(insertAt === -1 ? chapters.length : insertAt, 0, vol);
+    } else if (!hasVolumes) {
+        chapters.unshift(vol);
+    } else {
+        chapters.push(vol);
+    }
+    await saveChapters(chapters, workId);
+    return { vol, chapters };
+}
+
+// 在指定分卷下末尾插入新章节 (Async)
+export async function insertChapterInVolume(title, volumeId, workId) {
+    const chapters = await getChapters(workId);
+    const volIdx = chapters.findIndex(c => c.id === volumeId);
+    if (volIdx === -1) {
+        const ch = await createChapter(title, workId);
+        return { chapter: ch, chapters: await getChapters(workId) };
+    }
+
+    let insertIdx = volIdx + 1;
+    while (insertIdx < chapters.length && (chapters[insertIdx].type || 'chapter') !== 'volume') {
+        insertIdx++;
+    }
+
+    const newChapter = {
+        id: generateId(),
+        title,
+        content: '',
+        wordCount: 0,
+        createdAt: new Date().toISOString(),
+        updatedAt: new Date().toISOString(),
+    };
+    chapters.splice(insertIdx, 0, newChapter);
+    await saveChapters(chapters, workId);
+    return { chapter: newChapter, chapters };
+}
+
+// 按拖拽后的新 ID 顺序重排 (Async)
+export async function reorderItems(orderedIds, workId) {
+    const chapters = await getChapters(workId);
+    const map = new Map(chapters.map(c => [c.id, c]));
+    const reordered = orderedIds.map(id => map.get(id)).filter(Boolean);
+    for (const ch of chapters) {
+        if (!orderedIds.includes(ch.id)) reordered.push(ch);
+    }
+    await saveChapters(reordered, workId);
+    return reordered;
+}
+
 // 获取单个章节 (Async)
 export async function getChapter(id, workId) {
     const chapters = await getChapters(workId);

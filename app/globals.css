@@ -664,6 +664,54 @@ body.resizing .main-content {
   flex-direction: column;
 }
 
+/* ===== 分卷样式 ===== */
+.gdocs-volume-item {
+  border-left: 3px solid var(--accent);
+  border-radius: 20px 20px 20px 4px !important;
+  background: rgba(25, 103, 210, 0.03);
+  margin-top: 4px;
+}
+
+[data-theme="dark"] .gdocs-volume-item {
+  background: rgba(138, 180, 248, 0.05);
+}
+
+.gdocs-volume-item.active {
+  background: rgba(25, 103, 210, 0.08);
+}
+
+[data-theme="dark"] .gdocs-volume-item.active {
+  background: rgba(138, 180, 248, 0.12);
+}
+
+/* ===== 拖拽指示 ===== */
+.gdocs-dragging {
+  opacity: 0.4;
+}
+
+.gdocs-drag-top {
+  box-shadow: 0 -2px 0 0 var(--accent) inset;
+}
+
+.gdocs-drag-bottom {
+  box-shadow: 0 2px 0 0 var(--accent) inset;
+}
+
+/* ===== 大纲标题统计 ===== */
+.gdocs-outline-item {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+}
+
+.gdocs-outline-stats {
+  flex-shrink: 0;
+  font-size: 10px;
+  color: var(--text-muted);
+  opacity: 0.7;
+  white-space: nowrap;
+}
+
 /* ▶ 展开箭头 */
 .gdocs-tab-arrow {
   font-size: 8px;

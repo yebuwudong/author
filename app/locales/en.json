@@ -355,7 +355,15 @@
     "previewClose": "Close Preview",
     "previewEmpty": "This chapter has no content yet",
     "previewAll": "Full Book Preview",
-    "untitled": "Untitled"
+    "untitled": "Untitled",
+    "newVolume": "＋ New Volume",
+    "defaultVolumeTitle": "Volume {num}",
+    "volumeCreated": "Created \"{title}\"",
+    "volumeDeleted": "Deleted volume \"{title}\"",
+    "deleteVolume": "✕ Delete Volume",
+    "newChapterInVolume": "＋ New Chapter",
+    "renumber": "Renumber",
+    "renumbered": "Renumbered successfully"
   },
   "page": {
     "noChapterHint": "Select or create a chapter to start writing",

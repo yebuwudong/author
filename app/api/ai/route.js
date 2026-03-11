@@ -125,6 +125,8 @@ export async function POST(request) {
                     ...assistantMsg,
                     content: assistantMsg.content || '',
                 };
+                // 移除 reasoning_content，防止 Round 2 时推理模型只产出思维链、不产出正文
+                delete cleanedAssistantMsg.reasoning_content;
                 // 收集搜索结果和来源
                 const extendedMessages = [...messages, cleanedAssistantMsg];
                 const allSources = [];

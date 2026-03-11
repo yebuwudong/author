@@ -355,7 +355,15 @@
         "previewClose": "关闭预览",
         "previewEmpty": "此章节暂无内容",
         "previewAll": "全书预览",
-        "untitled": "未命名"
+        "untitled": "未命名",
+        "newVolume": "＋ 新建分卷",
+        "defaultVolumeTitle": "第{num}卷",
+        "volumeCreated": "已创建「{title}」",
+        "volumeDeleted": "已删除分卷「{title}」",
+        "deleteVolume": "✕ 删除分卷",
+        "newChapterInVolume": "＋ 新建章节",
+        "renumber": "重新编号",
+        "renumbered": "已重新编号"
     },
     "page": {
         "noChapterHint": "请选择或创建一个章节开始写作",
