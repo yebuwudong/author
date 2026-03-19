@@ -95,6 +95,43 @@
   --info: #60a5fa;
 }
 
+/* 暖色纸张 护眼模式 */
+[data-visual="warm"][data-theme="eye"],
+:root[data-theme="eye"] {
+  --bg-primary: #e9f0e0;
+  --bg-secondary: #dfe8d5;
+  --bg-editor: #f0f5ea;
+  --bg-sidebar: #e3ebd9;
+  --bg-hover: #d4dfc8;
+  --bg-active: #c9d6bc;
+  --bg-card: #f4f9ee;
+  --bg-canvas: #d5ddc9;
+  --bg-glass: rgba(233, 240, 224, 0.85);
+
+  --text-primary: #2c3325;
+  --text-secondary: #5a6650;
+  --text-muted: #8a9680;
+  --text-inverse: #f0f5ea;
+
+  --border-light: #ccd9be;
+  --border-medium: #b8c8a8;
+  --border-glass: rgba(204, 217, 190, 0.5);
+
+  --accent: #6b9e4a;
+  --accent-hover: #5a8c3d;
+  --accent-light: rgba(107, 158, 74, 0.15);
+  --accent-glow: rgba(107, 158, 74, 0.3);
+
+  --shadow-sm: 0 1px 3px rgba(44, 51, 37, 0.06);
+  --shadow-md: 0 4px 12px rgba(44, 51, 37, 0.08);
+  --shadow-lg: 0 12px 32px rgba(44, 51, 37, 0.12);
+  --shadow-page: 0 8px 30px rgba(44, 51, 37, 0.08), 0 1px 3px rgba(44, 51, 37, 0.04);
+
+  --success: #2ea043;
+  --error: #c46a6a;
+  --info: #3b82f6;
+}
+
 /* 现代极简透玻璃主题 (Modern Glass) */
 [data-visual="modern"] {
   --bg-primary: #fcfcfd;
@@ -170,6 +207,42 @@
   --success: #3fb950;
   --error: #f87171;
   --info: #93c5fd;
+}
+
+/* 现代主题 护眼模式 */
+[data-visual="modern"][data-theme="eye"] {
+  --bg-primary: #eaf2e4;
+  --bg-secondary: #e0ebd8;
+  --bg-editor: #f2f7ed;
+  --bg-sidebar: #e4eedc;
+  --bg-hover: #d5e3cc;
+  --bg-active: #c8d9bd;
+  --bg-card: #f5faf0;
+  --bg-canvas: #d8e4cf;
+  --bg-glass: rgba(234, 242, 228, 0.7);
+
+  --text-primary: #1f2b1a;
+  --text-secondary: #4a5a40;
+  --text-muted: #8a9a7e;
+  --text-inverse: #f2f7ed;
+
+  --border-light: #cddcbf;
+  --border-medium: #b5c8a5;
+  --border-glass: rgba(255, 255, 255, 0.5);
+
+  --accent: #4a9e3f;
+  --accent-hover: #3d8a34;
+  --accent-light: rgba(74, 158, 63, 0.1);
+  --accent-glow: rgba(74, 158, 63, 0.25);
+
+  --shadow-sm: 0 1px 2px rgba(0, 0, 0, 0.05);
+  --shadow-md: 0 4px 6px -1px rgba(0, 0, 0, 0.05), 0 2px 4px -1px rgba(0, 0, 0, 0.03);
+  --shadow-lg: 0 10px 25px -3px rgba(0, 0, 0, 0.05), 0 4px 6px -2px rgba(0, 0, 0, 0.03);
+  --shadow-page: 0 10px 40px rgba(0, 0, 0, 0.06), 0 1px 3px rgba(0, 0, 0, 0.02);
+
+  --success: #16a34a;
+  --error: #dc2626;
+  --info: #2563eb;
 }
 
 /* ==================== 基础样式 ==================== */
@@ -306,7 +379,12 @@ body {
   align-items: center;
   padding: 12px 0;
   transition: width 0.2s ease;
-  overflow: hidden;
+  overflow-y: auto;
+  overflow-x: hidden;
+  scrollbar-width: none; /* Firefox */
+}
+.sidebar-nav-pane::-webkit-scrollbar {
+  display: none; /* Chrome/Safari */
 }
 
 /* 展开态：宽度随标签自适应 */
@@ -323,6 +401,7 @@ body {
   gap: 4px;
   width: 100%;
   padding: 0;
+  flex-shrink: 0;
 }
 
 .sidebar-nav-pane.sidebar-nav-expanded .sidebar-nav-top,
@@ -919,6 +998,14 @@ body.resizing .main-content {
   position: relative;
 }
 
+.main-content {
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
+  display: flex;
+  flex-direction: column;
+}
+
 .editor-toolbar {
   padding: 8px 20px 8px 8px;
   border-bottom: 1px solid var(--border-light);
@@ -927,22 +1014,34 @@ body.resizing .main-content {
   position: relative;
   z-index: 40;
   align-items: center;
-  justify-content: center;
+  justify-content: safe center;
   gap: 4px;
-  flex-wrap: wrap;
+  flex-wrap: nowrap;
+  overflow-x: auto;
+  overflow-y: hidden;
+  scrollbar-width: none;
+}
+.editor-toolbar::-webkit-scrollbar {
+  display: none;
 }
 
 .toolbar-group {
   display: flex;
   align-items: center;
   gap: 2px;
+  flex-shrink: 0;
 }
 
+.toolbar-dropdown-wrap {
+  flex-shrink: 0;
+  white-space: nowrap;
+}
 .toolbar-divider {
   width: 1px;
   height: 20px;
   background: var(--border-light);
   margin: 0 6px;
+  flex-shrink: 0;
 }
 
 .toolbar-btn {
@@ -959,6 +1058,8 @@ body.resizing .main-content {
   justify-content: center;
   min-width: 32px;
   height: 32px;
+  white-space: nowrap;
+  flex-shrink: 0;
 }
 
 .toolbar-btn:hover {
@@ -4134,6 +4235,33 @@ body.resizing .main-content {
   color: var(--error);
   background: none;
   border: none;
+}
+
+/* ==================== 搜索高亮 ==================== */
+
+.search-highlight {
+  background: rgba(255, 213, 79, 0.45);
+  border-radius: 2px;
+  box-shadow: 0 0 0 1px rgba(255, 193, 7, 0.35);
+  transition: background 0.15s;
+}
+
+.search-highlight-current {
+  background: rgba(255, 152, 0, 0.55);
+  border-radius: 2px;
+  box-shadow: 0 0 0 2px rgba(255, 152, 0, 0.5);
+  transition: background 0.15s;
+}
+
+/* 深色模式下搜索高亮 */
+[data-theme="dark"] .search-highlight {
+  background: rgba(255, 213, 79, 0.3);
+  box-shadow: 0 0 0 1px rgba(255, 193, 7, 0.25);
+}
+
+[data-theme="dark"] .search-highlight-current {
+  background: rgba(255, 152, 0, 0.45);
+  box-shadow: 0 0 0 2px rgba(255, 152, 0, 0.4);
 }
 
 /* ==================== AI 侧栏浮动圆形图标 ==================== */

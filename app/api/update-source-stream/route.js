@@ -1,6 +1,14 @@
-import { existsSync } from 'fs';
+import { existsSync, readFileSync } from 'fs';
 import { join } from 'path';
 import { spawn } from 'child_process';
+
+// 服务启动时记录的版本（Node require 缓存，不会变）
+const RUNNING_VERSION = (() => {
+    try {
+        const pkg = JSON.parse(readFileSync(join(process.cwd(), 'package.json'), 'utf-8'));
+        return pkg.version;
+    } catch { return null; }
+})();
 
 /**
  * POST /api/update-source-stream
@@ -54,7 +62,18 @@ export async function POST() {
                             step: stepInfo.step, total: stepInfo.total, label: stepInfo.label,
                             status: 'done', log: result.output,
                         });
-                        send({ done: true, success: true, alreadyUpToDate: true });
+                        // 读取磁盘上的 package.json 版本（可能被之前的 git pull 更新过但服务未重启）
+                        let diskVersion = null;
+                        let needRestart = false;
+                        try {
+                            const pkg = JSON.parse(readFileSync(join(cwd, 'package.json'), 'utf-8'));
+                            diskVersion = pkg.version;
+                            needRestart = RUNNING_VERSION && diskVersion !== RUNNING_VERSION;
+                        } catch { /* ignore */ }
+                        send({
+                            done: true, success: true, alreadyUpToDate: true,
+                            needRestart, diskVersion, runningVersion: RUNNING_VERSION,
+                        });
                         controller.close();
                         return;
                     }
@@ -65,7 +84,8 @@ export async function POST() {
                     });
                 }
 
-                send({ done: true, success: true, alreadyUpToDate: false });
+                // 完整更新成功（git pull + npm install + build），必须重启
+                send({ done: true, success: true, alreadyUpToDate: false, needRestart: true });
             } catch (err) {
                 send({ done: true, success: false, error: err.message });
             }

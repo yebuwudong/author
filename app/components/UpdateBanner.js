@@ -133,7 +133,11 @@ export default function UpdateBanner() {
 
                     if (data.done) {
                         if (data.success) {
-                            if (data.alreadyUpToDate) {
+                            if (data.needRestart) {
+                                // 代码已更新或之前更新过但未重启
+                                const ver = data.diskVersion ? ` v${data.diskVersion}` : '';
+                                setUpdateResult({ success: true, message: `代码已更新到${ver}，请重启服务生效`, needRestart: true });
+                            } else if (data.alreadyUpToDate) {
                                 setUpdateResult({ success: true, message: t('update.alreadyLatest') });
                             } else {
                                 setUpdateResult({ success: true, message: t('update.updateSuccess') });
@@ -244,10 +248,10 @@ export default function UpdateBanner() {
                 {updateResult && (
                     <span style={{
                         fontSize: 12, fontWeight: 600,
-                        color: updateResult.success ? '#a7f3d0' : '#fca5a5',
+                        color: updateResult.success ? (updateResult.needRestart ? '#fbbf24' : '#a7f3d0') : '#fca5a5',
                     }}>
-                        {updateResult.message}
-                        {updateResult.success && !updateResult.message.includes(t('update.alreadyLatest')) && (
+                        {updateResult.needRestart ? '⚠️ ' : ''}{updateResult.message}
+                        {updateResult.success && !updateResult.message.includes(t('update.alreadyLatest')) && !updateResult.needRestart && (
                             <button
                                 onClick={() => window.location.reload()}
                                 style={{

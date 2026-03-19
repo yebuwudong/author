@@ -616,6 +616,64 @@ async function migrateGlobalToPerWork() {
 }
 
 /**
+ * 修复根分类节点 parentId 不一致的数据损坏问题
+ * 当节点存储在某个作品的 key 下但 parentId 指向另一个作品时，修复 parentId
+ * @param {Array} nodes - 节点数组（就地修改）
+ * @param {string} workId - 当前作品 ID
+ * @returns {boolean} 是否有修改
+ */
+function repairOrphanedRootFolders(nodes, workId) {
+    let changed = false;
+    // 检查所有预设分类是否都有正确 parentId 的根节点
+    const presetCategories = WORK_SUB_CATEGORIES.filter(c => c.category !== 'bookInfo');
+    const hasAllPresetRoots = presetCategories.every(cat =>
+        nodes.some(n => n.parentId === workId && n.category === cat.category && (n.type === 'folder' || n.type === 'special'))
+    );
+    if (hasAllPresetRoots) return false; // 所有预设分类都有正确的根节点，无需修复
+
+    // 找出所有"孤儿"根分类节点 — parentId 以 'work-' 开头但不等于当前 workId
+    const orphanRoots = nodes.filter(n =>
+        n.parentId && n.parentId.startsWith('work-') && n.parentId !== workId &&
+        (n.type === 'folder' || n.type === 'special') &&
+        !nodes.some(p => p.id === n.parentId) // parentId 指向的节点不在当前节点列表中
+    );
+
+    if (orphanRoots.length === 0) return false;
+
+    // 修复：更新这些根节点的 parentId 为当前 workId
+    // 同时需要更新其子节点的 parentId（因为根节点 ID 包含旧 workId 前缀）
+    const oldIdToNew = {};
+    for (const root of orphanRoots) {
+        const oldId = root.id;
+        // 为预设分类生成正确的 ID（workId-suffix 格式）
+        const matchingSub = WORK_SUB_CATEGORIES.find(c => c.category === root.category);
+        const newId = matchingSub ? `${workId}-${matchingSub.suffix}` : oldId;
+        
+        root.parentId = workId;
+        if (newId !== oldId) {
+            oldIdToNew[oldId] = newId;
+            root.id = newId;
+        }
+        changed = true;
+    }
+
+    // 级联更新子节点的 parentId
+    if (Object.keys(oldIdToNew).length > 0) {
+        for (const node of nodes) {
+            if (node.parentId && oldIdToNew[node.parentId]) {
+                node.parentId = oldIdToNew[node.parentId];
+                changed = true;
+            }
+        }
+    }
+
+    if (changed) {
+        console.log(`[Settings] Repaired ${orphanRoots.length} orphaned root folders for work ${workId}`);
+    }
+    return changed;
+}
+
+/**
  * 获取指定作品的设定节点（不含 work 节点本身） (Async)
  * @param {string} workId - 作品 ID，默认取当前活跃作品
  */
@@ -632,9 +690,11 @@ export async function getSettingsNodes(workId) {
             await persistSet(getNodesKey(wid), defaults);
             return defaults;
         }
+        // 修复 parentId 不匹配的根分类节点（数据损坏修复）
+        const repaired = repairOrphanedRootFolders(nodes, wid);
         // 为已有分类补充预设子文件夹
         const patched = ensurePresetSubFolders(nodes, wid);
-        if (patched) {
+        if (repaired || patched) {
             await persistSet(getNodesKey(wid), nodes);
         }
         return nodes;

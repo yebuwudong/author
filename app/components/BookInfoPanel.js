@@ -3,7 +3,8 @@
 import { useState, useEffect, useCallback, useMemo, useRef } from 'react';
 import { useAppStore } from '../store/useAppStore';
 import { useI18n } from '../lib/useI18n';
-import { getSettingsNodes, updateSettingsNode, deleteSettingsNode, saveSettingsNodes, getActiveWorkId, getAllWorks, getChatApiConfig, addWork, removeWork, addSettingsNode } from '../lib/settings';
+import { getSettingsNodes, updateSettingsNode, deleteSettingsNode, saveSettingsNodes, getActiveWorkId, getAllWorks, getChatApiConfig, addWork, removeWork, addSettingsNode, renameWork } from '../lib/settings';
+import { getChapters } from '../lib/storage';
 import { createPortal } from 'react-dom';
 import {
     X, Maximize2, Minimize2, BookOpen, Users, MapPin, Globe, Gem, ClipboardList, Ruler,
@@ -28,11 +29,14 @@ const CAT_COLORS = {
     custom: { color: '#64748b', bg: 'rgba(100,116,139,0.1)' },
 };
 
-// FieldInput 组件
+// FieldInput 组件 — 非受控 input + ref 同步，完美支持 IME 中文输入
 function FieldInput({ label, value, onChange, placeholder, multiline, rows }) {
     const editableRef = useRef(null);
+    const inputRef = useRef(null);
     const isUserInput = useRef(false);
-    // 外部 value 变化时同步 contentEditable DOM（如 AI 采纳）
+    const isComposingRef = useRef(false);
+
+    // 外部 value 变化时，通过 ref 同步 DOM（不触发 React 重渲染）
     useEffect(() => {
         if (multiline && editableRef.current && !isUserInput.current) {
             const current = editableRef.current.innerText;
@@ -40,8 +44,15 @@ function FieldInput({ label, value, onChange, placeholder, multiline, rows }) {
                 editableRef.current.innerText = value || '';
             }
         }
+        // 单行 input：仅在非 IME 组合时，通过 ref 同步外部值
+        if (!multiline && inputRef.current && !isComposingRef.current) {
+            if (inputRef.current.value !== (value || '')) {
+                inputRef.current.value = value || '';
+            }
+        }
         isUserInput.current = false;
     }, [value, multiline]);
+
     const baseStyle = {
         width: '100%', padding: '10px 14px', border: '1.5px solid var(--border-light)',
         borderRadius: 12, background: 'var(--bg-secondary)', color: 'var(--text-primary)',
@@ -76,12 +87,29 @@ function FieldInput({ label, value, onChange, placeholder, multiline, rows }) {
                 />
             ) : (
                 <input
+                    ref={inputRef}
                     type="text"
-                    value={value || ''}
-                    onChange={e => onChange(e.target.value)}
+                    defaultValue={value || ''}
+                    onChange={e => {
+                        if (!isComposingRef.current) {
+                            onChange(e.target.value);
+                        }
+                    }}
+                    onCompositionStart={() => { isComposingRef.current = true; }}
+                    onCompositionEnd={e => {
+                        isComposingRef.current = false;
+                        onChange(e.target.value);
+                    }}
                     placeholder={placeholder}
                     style={baseStyle}
-                    onFocus={focusStyle} onBlur={blurStyle}
+                    onFocus={focusStyle}
+                    onBlur={e => {
+                        if (isComposingRef.current) {
+                            isComposingRef.current = false;
+                            onChange(e.target.value);
+                        }
+                        blurStyle(e);
+                    }}
                 />
             )}
         </div>
@@ -411,6 +439,7 @@ export default function BookInfoPanel() {
     const { showBookInfo, setShowBookInfo, settingsVersion, incrementSettingsVersion, chapters } = useAppStore();
     const [isFullscreen, setIsFullscreen] = useState(true);
     const [nodes, setNodes] = useState([]);
+    const [selectedChapters, setSelectedChapters] = useState([]);
     const [bookInfoNode, setBookInfoNode] = useState(null);
     const [bookData, setBookData] = useState({});
     const [workName, setWorkName] = useState('');
@@ -425,6 +454,7 @@ export default function BookInfoPanel() {
     const [cropperSrc, setCropperSrc] = useState(null); // 裁剪器图片源
     const [aiEval, setAiEval] = useState(null); // AI评价结果
     const [aiEvalLoading, setAiEvalLoading] = useState(false);
+    const skipWorksReloadRef = useRef(false); // 防止标题编辑触发 useEffect 重载
 
     // 检查是否跳过删除确认（与 SettingsPanel 共用同一套 localStorage Key）
     const shouldSkipDeleteConfirm = () => {
@@ -493,14 +523,27 @@ export default function BookInfoPanel() {
     // 加载选中作品的数据
     useEffect(() => {
         if (!showBookInfo || !selectedWorkId) return;
+        // 标题编辑导致 works 变化时，跳过重载（避免覆盖用户输入）
+        if (skipWorksReloadRef.current) {
+            skipWorksReloadRef.current = false;
+            return;
+        }
         (async () => {
             const allNodes = await getSettingsNodes(selectedWorkId);
             setNodes(allNodes);
+            // 加载选中作品的章节数据（非全局活跃作品）
+            const workChapters = await getChapters(selectedWorkId);
+            setSelectedChapters(workChapters);
             const biNode = allNodes.find(n => n.category === 'bookInfo' && n.type === 'special');
             setBookInfoNode(biNode || null);
-            setBookData(biNode?.content || {});
-            setGoals(biNode?.content?.goals || []);
+            const data = biNode?.content || {};
             const work = works.find(w => w.id === selectedWorkId);
+            // 同步：如果 bookData.title 为空但 work.name 有值，则预填充
+            if (!data.title && work?.name) {
+                data.title = work.name;
+            }
+            setBookData(data);
+            setGoals(data.goals || []);
             setWorkName(work?.name || '');
         })();
     }, [showBookInfo, selectedWorkId, works, settingsVersion]);
@@ -537,15 +580,25 @@ export default function BookInfoPanel() {
     const handleFieldChange = useCallback((field, value) => {
         // 1. 立即更新本地状态（保证输入流畅）
         setBookData(prev => ({ ...prev, [field]: value }));
-        // 2. 防抖保存到持久化存储（500ms 无新输入后才执行）
+        // 2. 如果修改的是标题，同步更新左侧作品列表的名称
+        if (field === 'title' && selectedWorkId && value) {
+            skipWorksReloadRef.current = true; // 防止 setWorks 触发 useEffect 重载
+            setWorks(prev => prev.map(w => w.id === selectedWorkId ? { ...w, name: value } : w));
+            setWorkName(value);
+        }
+        // 3. 防抖保存到持久化存储（500ms 无新输入后才执行）
         if (saveTimerRef.current) clearTimeout(saveTimerRef.current);
         saveTimerRef.current = setTimeout(() => {
             const cur = { ...latestBookDataRef.current, [field]: value };
             if (bookInfoNode) {
                 updateSettingsNode(bookInfoNode.id, { content: cur }, nodes.map(n => n.id === bookInfoNode.id ? { ...n, content: cur } : n));
             }
+            // 同步持久化作品名称
+            if (field === 'title' && selectedWorkId && value) {
+                renameWork(selectedWorkId, value);
+            }
         }, 500);
-    }, [bookInfoNode, nodes]);
+    }, [bookInfoNode, nodes, selectedWorkId]);
 
     // 统计数据
     const stats = useMemo(() => {
@@ -600,15 +653,16 @@ export default function BookInfoPanel() {
         });
         recentItems.sort((a, b) => (b.updatedAt || '').localeCompare(a.updatedAt || ''));
         const totalItems = Object.values(catCounts).reduce((s, v) => s + v, 0);
-        const totalWords = Array.isArray(chapters)
-            ? chapters.filter(c => (c.type || 'chapter') !== 'volume').reduce((s, c) => s + (c.wordCount || 0), 0)
+        const chaps = selectedChapters;
+        const totalWords = Array.isArray(chaps)
+            ? chaps.filter(c => (c.type || 'chapter') !== 'volume').reduce((s, c) => s + (c.wordCount || 0), 0)
             : 0;
-        const chapterCount = Array.isArray(chapters)
-            ? chapters.filter(c => (c.type || 'chapter') !== 'volume').length
+        const chapterCount = Array.isArray(chaps)
+            ? chaps.filter(c => (c.type || 'chapter') !== 'volume').length
             : 0;
         // 最近编辑的章节
-        const recentChapters = Array.isArray(chapters)
-            ? chapters.filter(c => (c.type || 'chapter') !== 'volume')
+        const recentChapters = Array.isArray(chaps)
+            ? chaps.filter(c => (c.type || 'chapter') !== 'volume')
                 .map(c => ({ ...c }))
                 .sort((a, b) => (b.updatedAt || b.createdAt || '').localeCompare(a.updatedAt || a.createdAt || ''))
                 .slice(0, 5)
@@ -631,7 +685,7 @@ export default function BookInfoPanel() {
             orderedCatEntries.push({ key, count: catCounts[key] || 0 });
         });
         return { catCounts, customFolderLabels, orderedCatEntries, recentItems: recentItems.slice(0, 5), totalItems, totalWords, chapterCount, recentChapters };
-    }, [nodes, chapters]);
+    }, [nodes, selectedChapters]);
 
     if (!showBookInfo) return null;
 
@@ -824,7 +878,8 @@ export default function BookInfoPanel() {
                             {[{ key: 'overview', label: '创作概览', icon: Layers }, { key: 'info', label: '作品信息', icon: FileText }].map(tab => (
                                 <button
                                     key={tab.key}
-                                    onClick={() => { document.activeElement?.blur(); setTimeout(() => setActiveTab(tab.key), 100); }}
+                                    onMouseDown={e => e.preventDefault()} // 阻止按钮抢焦点，避免打断 IME 组合导致 Chrome IME 崩溃
+                                    onClick={() => setActiveTab(tab.key)}
                                     style={{
                                         display: 'inline-flex', alignItems: 'center', gap: 6,
                                         padding: '12px 20px', border: 'none', cursor: 'pointer',
@@ -1198,7 +1253,7 @@ export default function BookInfoPanel() {
                                     ))}
                                 </div>
                             </div>
-                            <ActivityChart chapters={chapters} period={chartPeriod} />
+                            <ActivityChart chapters={selectedChapters} period={chartPeriod} />
                         </div>
 
                         {/* 最近编辑 + 最近章节 — 左右并排 */}

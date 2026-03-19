@@ -139,11 +139,37 @@ npm start
 
 ### 源码部署用户
 
+#### 方式一：应用内一键更新
+
+打开 **帮助面板 → 关于 → 检查更新**，点击「一键更新」即可自动执行 `git pull → npm install → npm run build`。
+
+> ⚠️ **更新完成后必须重启服务才能生效**，应用内会显示重启步骤指引。
+
+#### 方式二：手动更新
+
 ```bash
+# 1. 拉取最新代码
 git pull origin main
-npm install   # 或: pnpm install && pnpm approve-builds
+
+# 2. 安装依赖（如有新增）
+npm install
+# 或: pnpm install && pnpm approve-builds
+
+# 3. 重新构建（生产模式需要）
+npm run build
+
+# 4. 重启服务
+# 开发模式：先 Ctrl+C 停止，再启动
 npm run dev
+
+# 生产模式：先 Ctrl+C 停止，再启动
+npm start
+
+# 使用 PM2 管理：
+pm2 restart author
 ```
+
+> ⚠️ **只执行 `git pull` 而不重启服务，新版本不会生效。** Running 的 Node.js 进程仍然使用旧代码。
 
 ### Vercel 部署用户
 

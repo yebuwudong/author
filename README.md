@@ -135,11 +135,37 @@ Download the latest installer from the [Releases](https://github.com/YuanShiJiLo
 
 ### Self-Deployed Users (Source)
 
+#### Option 1: In-App Auto Update
+
+Open **Help Panel → About → Check for Updates** and click "Update Now". This automatically runs `git pull → npm install → npm run build`.
+
+> ⚠️ **You must restart the server after updating for changes to take effect.** The app will display restart instructions.
+
+#### Option 2: Manual Update
+
 ```bash
+# 1. Pull latest code
 git pull origin main
-npm install   # or: pnpm install && pnpm approve-builds
+
+# 2. Install dependencies (if any new ones)
+npm install
+# or: pnpm install && pnpm approve-builds
+
+# 3. Rebuild (required for production mode)
+npm run build
+
+# 4. Restart the server
+# Development mode: Ctrl+C to stop, then restart
 npm run dev
+
+# Production mode: Ctrl+C to stop, then restart
+npm start
+
+# Using PM2:
+pm2 restart author
 ```
+
+> ⚠️ **Running `git pull` without restarting the server will NOT apply the update.** The running Node.js process still uses the old code.
 
 ### Vercel Users
 

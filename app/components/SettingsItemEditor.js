@@ -1024,7 +1024,7 @@ export default function SettingsItemEditor({ selectedNode, allNodes, onUpdate, o
     // 文件夹 → 显示文件夹信息
     if (selectedNode.type === 'folder' || selectedNode.type === 'special') {
         return (
-            <div style={{ padding: '24px 28px' }}>
+            <div key={selectedNode.id} style={{ padding: '24px 28px' }}>
                 <Breadcrumb node={selectedNode} allNodes={allNodes} onSelect={onSelect} />
                 <FolderInfo node={selectedNode} nodes={allNodes} onAdd={onAdd} onUpdate={onUpdate} />
             </div>
@@ -1044,7 +1044,7 @@ export default function SettingsItemEditor({ selectedNode, allNodes, onUpdate, o
     const EditorComponent = editorMap[selectedNode.category] || GenericEditor;
 
     return (
-        <div style={{ padding: '24px 28px' }}>
+        <div key={selectedNode.id} style={{ padding: '24px 28px' }}>
             <Breadcrumb node={selectedNode} allNodes={allNodes} onSelect={onSelect} />
             <EditorComponent node={selectedNode} onUpdate={onUpdate} />
         </div>

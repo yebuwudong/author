@@ -546,7 +546,10 @@ export default function HelpPanel({ open, onClose }) {
 
                     if (data.done) {
                         if (data.success) {
-                            if (data.alreadyUpToDate) {
+                            if (data.needRestart) {
+                                const ver = data.diskVersion ? ` v${data.diskVersion}` : '';
+                                setUpdateDone({ success: true, message: `代码已更新到${ver}，请重启服务生效`, needRestart: true });
+                            } else if (data.alreadyUpToDate) {
                                 setUpdateDone({ success: true, message: t('update.alreadyLatest') });
                             } else {
                                 setUpdateDone({ success: true, message: t('update.updateSuccess') });
@@ -678,7 +681,7 @@ export default function HelpPanel({ open, onClose }) {
                         {/* 状态图标 */}
                         <div style={{ fontSize: 48, marginBottom: 16 }}>
                             {updateDone
-                                ? (updateDone.success ? '✅' : '❌')
+                                ? (updateDone.success ? (updateDone.needRestart ? '⚠️' : '✅') : '❌')
                                 : updating ? '⏳'
                                     : updateResult.status === 'available' ? '🎉' : updateResult.status === 'latest' ? '✅' : '⚠️'
                             }
@@ -825,20 +828,36 @@ export default function HelpPanel({ open, onClose }) {
                                 </>
                             )}
 
-                            {/* 更新完成后：刷新按钮 */}
+                            {/* 更新完成后 */}
                             {updateDone?.success && !updateDone.message.includes(t('update.alreadyLatest')) && (
-                                <button
-                                    onClick={() => window.location.reload()}
-                                    style={{
-                                        padding: '8px 22px', fontSize: 14, fontWeight: 600,
-                                        borderRadius: 8,
-                                        background: 'var(--accent)',
-                                        color: '#fff', border: 'none', cursor: 'pointer',
-                                        transition: 'opacity 0.15s',
-                                    }}
-                                >
-                                    {t('update.refreshNow')}
-                                </button>
+                                updateDone.needRestart ? (
+                                    <div style={{
+                                        fontSize: 13, color: 'var(--text-secondary)',
+                                        background: 'rgba(251, 191, 36, 0.1)',
+                                        border: '1px solid rgba(251, 191, 36, 0.3)',
+                                        borderRadius: 8, padding: '12px 16px',
+                                        textAlign: 'left', lineHeight: 1.7,
+                                        marginBottom: 8, width: '100%',
+                                    }}>
+                                        <div style={{ fontWeight: 700, marginBottom: 6, color: '#fbbf24' }}>📋 重启步骤：</div>
+                                        <div>1. 停止当前运行的服务（Ctrl+C）</div>
+                                        <div>2. 运行 <code style={{ background: 'var(--bg-secondary)', padding: '1px 6px', borderRadius: 4 }}>npm start</code> 或 <code style={{ background: 'var(--bg-secondary)', padding: '1px 6px', borderRadius: 4 }}>npm run dev</code></div>
+                                        <div>3. 刷新浏览器页面</div>
+                                    </div>
+                                ) : (
+                                    <button
+                                        onClick={() => window.location.reload()}
+                                        style={{
+                                            padding: '8px 22px', fontSize: 14, fontWeight: 600,
+                                            borderRadius: 8,
+                                            background: 'var(--accent)',
+                                            color: '#fff', border: 'none', cursor: 'pointer',
+                                            transition: 'opacity 0.15s',
+                                        }}
+                                    >
+                                        {t('update.refreshNow')}
+                                    </button>
+                                )
                             )}
 
                             {/* 关闭按钮（更新中时不显示） */}

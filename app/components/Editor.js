@@ -16,6 +16,7 @@ import TaskItem from '@tiptap/extension-task-item';
 import { Markdown } from 'tiptap-markdown';
 import { MathInline, MathBlock, openMathEditor } from './MathExtension';
 import { PageBreakExtension } from './PageBreakExtension';
+import { SearchHighlightExtension } from './SearchHighlightExtension';
 import GhostMark from './GhostMark';
 import EditorBubbleMenu from './EditorBubbleMenu';
 import { createSlashExtension, SlashCommandMenu } from './SlashCommands';
@@ -124,6 +125,7 @@ const Editor = forwardRef(function Editor({ content, onUpdate, editable = true, 
             PageBreakExtension,
             GhostMark,
             slashExtension,
+            SearchHighlightExtension,
         ],
         content: content || '',
         editable,
@@ -394,13 +396,39 @@ function FindBar({ editor, visible, onClose }) {
         }
     }, [query, caseSensitive]); // eslint-disable-line react-hooks/exhaustive-deps
 
+    // 同步高亮装饰到编辑器
+    useEffect(() => {
+        if (!editor) return;
+        if (matches.length > 0) {
+            editor.commands.setSearchHighlight({ matches, currentIndex });
+        } else {
+            editor.commands.clearSearchHighlight();
+        }
+    }, [editor, matches, currentIndex]);
+
     // 跳转到指定匹配
     const goToMatch = useCallback((matchList, idx) => {
         if (!editor || !matchList.length || idx < 0 || idx >= matchList.length) return;
         const { from, to } = matchList[idx];
         const tr = editor.state.tr.setSelection(TextSelection.create(editor.state.doc, from, to));
-        tr.scrollIntoView();
         editor.view.dispatch(tr);
+        // 使用 DOM scrollIntoView 滚动到匹配位置
+        // ProseMirror 的 tr.scrollIntoView() 不适用于外层 .editor-container 滚动容器
+        requestAnimationFrame(() => {
+            try {
+                const domPos = editor.view.domAtPos(from);
+                const domNode = domPos.node.nodeType === Node.TEXT_NODE ? domPos.node.parentElement : domPos.node;
+                if (domNode) {
+                    domNode.scrollIntoView({ behavior: 'smooth', block: 'center' });
+                }
+            } catch (e) {
+                // fallback: 尝试通过 .search-highlight-current 元素滚动
+                const currentEl = document.querySelector('.search-highlight-current');
+                if (currentEl) {
+                    currentEl.scrollIntoView({ behavior: 'smooth', block: 'center' });
+                }
+            }
+        });
     }, [editor]);
 
     // 下一个
@@ -469,6 +497,8 @@ function FindBar({ editor, visible, onClose }) {
             setReplaceText('');
             setMatches([]);
             setCurrentIndex(-1);
+            // 关闭时清除高亮
+            if (editor) editor.commands.clearSearchHighlight();
         }
     }, [visible]); // eslint-disable-line react-hooks/exhaustive-deps
 
@@ -1476,13 +1506,27 @@ function EditorToolbar({ editor, margins, setMargins }) {
         return () => document.removeEventListener('click', handler);
     }, []);
 
+    // 工具栏横向滚动：将鼠标滚轮纵向滚动转为横向
+    useEffect(() => {
+        const el = toolbarRef.current;
+        if (!el) return;
+        const onWheel = (e) => {
+            if (e.deltaY !== 0 && el.scrollWidth > el.clientWidth) {
+                el.scrollLeft += e.deltaY;
+                e.preventDefault();
+            }
+        };
+        el.addEventListener('wheel', onWheel, { passive: false });
+        return () => el.removeEventListener('wheel', onWheel);
+    }, []);
+
     const currentFontFamily = editor.getAttributes('textStyle').fontFamily || '';
     const currentFontLabel = FONT_FAMILIES.find(f => f.value === currentFontFamily)?.label || '默认';
     const currentColor = editor.getAttributes('textStyle').color || '';
     const currentHighlight = editor.getAttributes('highlight').color || '';
 
     return (
-        <div className="editor-toolbar" onMouseDown={e => { if (e.target.tagName !== 'INPUT') e.preventDefault(); }}>
+        <div className="editor-toolbar" ref={toolbarRef} onMouseDown={e => { if (e.target.tagName !== 'INPUT') e.preventDefault(); }}>
             {/* 编辑器 AI 模型切换器 */}
             <ModelPicker target="editor" dropDirection="down" />
 

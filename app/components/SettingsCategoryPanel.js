@@ -66,7 +66,9 @@ export function getCategoryLabel(category, t) {
         bookInfo: '作品信息', character: '人物设定', location: '空间/地点',
         world: '世界观', object: '物品/道具', plot: '大纲', rules: '写作规则',
     };
-    return labels[category] || category;
+    if (labels[category]) return labels[category];
+    if (category?.startsWith('custom-')) return '自定义分类';
+    return category;
 }
 
 /**
